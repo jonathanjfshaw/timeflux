@@ -2,8 +2,10 @@
 
 from itertools import cycle
 
-from timeflux.core.node import Node
 import xarray as xr
+
+from timeflux.core.node import Node
+from timeflux.helpers.port import match_events
 
 
 class Gate(Node):
@@ -42,15 +44,22 @@ class Gate(Node):
         self._reset()
 
     def update(self):
-        # Iter over events to match the opening/closing trigger.
-
-        if self.i_events.ready():
-            for index, row in self.i_events.data.iterrows():
-                if row[self._event_label] == self._trigger:
-                    self.logger.debug(f'Gate received {self._trigger}.')
-                    self._next()
-                    # keep track of opening/closing of the gate
-                    self._times.append(index)
+        # Iter over events to match the opening/closing trigger
+        lfm = True  # look for an event match
+        while self.i_events.ready() and lfm:
+            # Detect onset/offset
+            matches = match_events(self.i_events, self._trigger)
+            if matches is None:
+                lfm = False
+            else:
+                # take the first match
+                match = matches.head(1)
+                self.logger.debug(f'Gate received {self._trigger}.')
+                self._next()
+                # keep track of opening/closing of the gate
+                match_time = match.index[0]
+                self._times.append(match_time)
+                self.i_events.data = self.i_events.data[match_time:]
         self._update()
 
     def _update(self):
